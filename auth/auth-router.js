@@ -1,49 +1,59 @@
-const db = require("./api-helper");
+const router = require("express").Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const router = require("express").Router();
-const restricted = require("./authenticate-middleware");
+const secrets = require("../config/secrets");
 
-router.post("/register", restricted, (req, res) => {
-  // implement registration
-  const creds = req.body;
-  const hash = bcrypt.hashSync(creds.password, 8);
-  creds.password = hash;
-  db.addUser(creds)
-    .then((id) => {
-      res.status(201).json(id);
+const Auth = require("./api-helper");
+
+router.post("/register", (req, res) => {
+  let user = req.body;
+  const hash = bcrypt.hashSync(user.password, 10);
+  user.password = hash;
+  console.log(user);
+  Auth.add(user)
+    .then((saved) => {
+      user.id = saved[0];
+      delete user.password;
+      console.log(saved);
+      const token = genToken(saved);
+
+      res.status(201).json({ created_user: saved, token: token });
     })
-    .catch((err) => {
-      res.status(500).json({ message: "Can't add user" });
+    .catch((error) => {
+      res.status(500).json(error);
     });
 });
 
 router.post("/login", (req, res) => {
-  // implement login
-  const { username, password } = req.body;
-  db.findBy({ username })
+  let { username, password } = req.body;
+
+  Auth.findBy({ username })
+    .first()
     .then((user) => {
-      if (user && bcjs.compareSync(password, user.password)) {
-        let token = generateToken(user);
-        res.status(200).json({ message: `welcome ${username}`, token });
+      if (user && bcrypt.compareSync(password, user.password)) {
+        const token = genToken(user);
+
+        res.status(200).json({ username: user.username, token: token });
       } else {
-        res.status(401).json({ message: "Wrong credentials" });
+        res.status(401).json({ message: "Invalid Credentials" });
       }
     })
-    .catch((err) => {
-      res.status(500).json({ message: "error logging in" });
+    .catch((error) => {
+      res.status(500).json(error);
     });
 });
 
-function generateToken(user) {
+function genToken(user) {
   const payload = {
-    subject: user.id,
+    userid: user.id,
     username: user.username,
+    // department: user.department,
   };
-  const options = {
-    expiresIn: "1h",
-  };
-  return jwt.sign(payload, "whatever", options);
+
+  const options = { expiresIn: "1h" };
+  const token = jwt.sign(payload, secrets.jwtSecret, options);
+
+  return token;
 }
 
 module.exports = router;
